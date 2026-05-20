@@ -4,10 +4,24 @@ import cors from 'cors';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://brinda-portfolio.apps.hirodiscount.com';
 const TO_EMAIL = process.env.TO_EMAIL || 'brindanodem@gmail.com';
 
-app.use(cors({ origin: ALLOWED_ORIGIN }));
+// Origins acceptés : la prod et tout PR Preview Coolify (`<pr_id>.brinda-portfolio...`).
+// Surchargeable via env `ALLOWED_ORIGINS` (CSV) ou `ALLOWED_ORIGIN_REGEX` (regex).
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://brinda-portfolio.apps.hirodiscount.com')
+    .split(',').map(s => s.trim()).filter(Boolean);
+const ORIGIN_REGEX = new RegExp(
+    process.env.ALLOWED_ORIGIN_REGEX || '^https://([a-z0-9-]+\\.)?brinda-portfolio\\.apps\\.hirodiscount\\.com$'
+);
+
+app.use(cors({
+    origin: (origin, cb) => {
+        if (!origin) return cb(null, true);
+        if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+        if (ORIGIN_REGEX.test(origin)) return cb(null, true);
+        cb(new Error('Not allowed by CORS: ' + origin));
+    }
+}));
 app.use(express.json({ limit: '50kb' }));
 
 const transporter = nodemailer.createTransport({
