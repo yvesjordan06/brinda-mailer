@@ -6,6 +6,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const TO_EMAIL = process.env.TO_EMAIL || 'brindanodem@gmail.com';
 const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET;
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const FROM_EMAIL = process.env.FROM_EMAIL || process.env.SMTP_USER;
 
 // Origins acceptés : la prod et tout PR Preview Coolify (`<pr_id>.brinda-portfolio...`).
 // Surchargeable via env `ALLOWED_ORIGINS` (CSV) ou `ALLOWED_ORIGIN_REGEX` (regex).
@@ -61,13 +63,30 @@ app.post('/send', async (req, res) => {
                   }
           }
 
-          await transporter.sendMail({
-                  from: process.env.FROM_EMAIL || process.env.SMTP_USER,
-                  to: TO_EMAIL,
-                  subject: '[Portfolio] ' + subject,
-                  replyTo: email,
-                  text: 'De: ' + name + ' <' + email + '>\n\n' + message
-          });
+          const subjectLine = '[Portfolio] ' + subject;
+          const body = 'De: ' + name + ' <' + email + '>\n\n' + message;
+
+          // Envoi via l'API HTTP de Resend (port 443) si une clé est configurée
+          // — le SMTP sortant (465) est bloqué depuis le conteneur. Repli SMTP sinon.
+          if (RESEND_API_KEY) {
+                  const r = await fetch('https://api.resend.com/emails', {
+                          method: 'POST',
+                          headers: { Authorization: 'Bearer ' + RESEND_API_KEY, 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ from: FROM_EMAIL, to: [TO_EMAIL], subject: subjectLine, text: body, reply_to: email }),
+                  });
+                  if (!r.ok) {
+                          console.error('Resend error', r.status, await r.text().catch(() => ''));
+                          return res.status(500).json({ ok: false, error: 'Send failed' });
+                  }
+          } else {
+                  await transporter.sendMail({
+                          from: FROM_EMAIL,
+                          to: TO_EMAIL,
+                          subject: subjectLine,
+                          replyTo: email,
+                          text: body,
+                  });
+          }
           res.json({ ok: true });
     } catch (e) {
           console.error(e);
