@@ -62,7 +62,7 @@ app.post('/send', async (req, res) => {
           }
 
           await transporter.sendMail({
-                  from: process.env.SMTP_USER,
+                  from: process.env.FROM_EMAIL || process.env.SMTP_USER,
                   to: TO_EMAIL,
                   subject: '[Portfolio] ' + subject,
                   replyTo: email,
