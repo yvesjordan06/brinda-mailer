@@ -5,6 +5,7 @@ import cors from 'cors';
 const app = express();
 const PORT = process.env.PORT || 3000;
 const TO_EMAIL = process.env.TO_EMAIL || 'brindanodem@gmail.com';
+const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET;
 
 // Origins acceptés : la prod et tout PR Preview Coolify (`<pr_id>.brinda-portfolio...`).
 // Surchargeable via env `ALLOWED_ORIGINS` (CSV) ou `ALLOWED_ORIGIN_REGEX` (regex).
@@ -36,7 +37,7 @@ app.get('/health', (req, res) => res.json({ ok: true }));
 
 app.post('/send', async (req, res) => {
     try {
-          const { name, email, subject, message, hp } = req.body || {};
+          const { name, email, subject, message, hp, token } = req.body || {};
           if (hp) return res.json({ ok: true });
           if (!name || !email || !subject || !message) {
                   return res.status(400).json({ ok: false, error: 'Missing fields' });
@@ -44,6 +45,22 @@ app.post('/send', async (req, res) => {
           if (message.length > 5000 || subject.length > 200 || name.length > 100 || email.length > 200) {
                   return res.status(400).json({ ok: false, error: 'Field too long' });
           }
+
+          // Vérification Cloudflare Turnstile (anti-bot). Active seulement si le
+          // secret est configuré → permet un déploiement progressif sans casse.
+          if (TURNSTILE_SECRET) {
+                  if (!token) return res.status(400).json({ ok: false, error: 'Captcha manquant' });
+                  const verify = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                          body: new URLSearchParams({ secret: TURNSTILE_SECRET, response: token }),
+                  });
+                  const outcome = await verify.json().catch(() => ({ success: false }));
+                  if (!outcome.success) {
+                          return res.status(403).json({ ok: false, error: 'Vérification anti-bot échouée' });
+                  }
+          }
+
           await transporter.sendMail({
                   from: process.env.SMTP_USER,
                   to: TO_EMAIL,
